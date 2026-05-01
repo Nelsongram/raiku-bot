@@ -6,75 +6,79 @@ from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
 TOKEN = os.getenv("BOT_TOKEN")
 
-# 🔍 Fetch real data from CoinGecko
-def get_crypto_data(coin):
-    url = f"https://api.coingecko.com/api/v3/simple/price?ids={coin}&vs_currencies=usd&include_24hr_change=true"
-    response = requests.get(url).json()
+# 🔍 Get trending pairs (DexScreener)
+def get_trending():
+    url = "https://api.dexscreener.com/latest/dex/tokens/solana"
+    data = requests.get(url).json()
 
-    if coin not in response:
-        return None
+    pairs = data.get("pairs", [])
+    results = []
 
-    price = response[coin]["usd"]
-    change = response[coin]["usd_24h_change"]
+    for pair in pairs[:5]:  # top 5
+        name = pair["baseToken"]["name"]
+        price = pair.get("priceUsd", "0")
+        change = pair.get("priceChange", {}).get("h24", 0)
+        volume = pair.get("volume", {}).get("h24", 0)
+        liquidity = pair.get("liquidity", {}).get("usd", 0)
 
-    return price, change
+        # 🧠 SNIPER LOGIC
+        if volume > 10000 and liquidity > 20000:
+            signal = "🚀 BUY"
+        else:
+            signal = "⚠️ WATCH"
+
+        results.append({
+            "name": name,
+            "price": price,
+            "change": change,
+            "volume": volume,
+            "liquidity": liquidity,
+            "signal": signal
+        })
+
+    return results
 
 
+# 📊 Analyze command (keep your old feature)
+async def analyze(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Use /scan for live sniper signals")
+
+
+# 🚀 SNIPER SCAN
+async def scan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    data = get_trending()
+
+    msg = "🐉 RAIKU SNIPER SCAN\n━━━━━━━━━━━━━━━\n\n"
+
+    for coin in data:
+        msg += f"""
+⚡ {coin['name']}
+💲 ${coin['price']}
+📊 24h: {coin['change']}%
+💧 Liquidity: ${coin['liquidity']}
+📈 Volume: ${coin['volume']}
+🎯 Signal: {coin['signal']}
+
+━━━━━━━━━━━━━━━
+"""
+
+    msg += f"\n⚡ Scan Time: {datetime.now().strftime('%H:%M:%S')}"
+
+    await update.message.reply_text(msg)
+
+
+# 🟢 START
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🐉 Raiku is ACTIVE.\nUse /analyze bitcoin"
+        "🐉 Raiku Sniper ACTIVE\n\nCommands:\n/analyze bitcoin\n/scan (LIVE SNIPER)"
     )
 
 
-async def analyze(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text("Usage: /analyze bitcoin")
-        return
-
-    coin = context.args[0].lower()
-    data = get_crypto_data(coin)
-
-    if not data:
-        await update.message.reply_text("❌ Coin not found")
-        return
-
-    price, change = data
-
-    # Simple logic (you can improve later)
-    decision = "BUY" if change > 0 else "SELL"
-    risk = "LOW" if abs(change) < 3 else "HIGH"
-
-    time_now = datetime.now().strftime("%H:%M:%S")
-
-    response = f"""
-🐉 RAIKU SNIPER ENGINE
-━━━━━━━━━━━━━━━━━━━
-
-⚡ Token: {coin.upper()}
-💲 Price: ${price:,.2f}
-📊 24h Change: {change:.2f}%
-
-⚡ Decision: {decision}
-⚠️ Risk: {risk}
-
-━━━━━━━━━━━━━━━━━━━
-
-📊 Market Pulse: {"BULLISH" if change > 0 else "BEARISH"}
-🚀 Priority Fee: 12000
-⏱ Entry Window: 3s
-
-━━━━━━━━━━━━━━━━━━━
-
-⚡ Speed Layer Active
-🕒 {time_now}
-"""
-
-    await update.message.reply_text(response)
-
-
+# 🚀 RUN BOT
 app = ApplicationBuilder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("analyze", analyze))
+app.add_handler(CommandHandler("scan", scan))
 
 app.run_polling()
