@@ -1,84 +1,153 @@
 import os
 import requests
+import asyncio
 from datetime import datetime
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-TOKEN = os.getenv("BOT_TOKEN")
+TOKEN = os.getenv("TOKEN")
 
-# 🔍 Get trending pairs (DexScreener)
-def get_trending():
-    url = "https://api.dexscreener.com/latest/dex/tokens/solana"
-    data = requests.get(url).json()
+# -------------------------
+# 🔍 GET REAL PRICE DATA
+# -------------------------
+def get_price(token):
+    url = f"https://api.coingecko.com/api/v3/simple/price?ids={token}&vs_currencies=usd&include_24hr_change=true"
+    res = requests.get(url).json()
 
-    pairs = data.get("pairs", [])
-    results = []
+    if token not in res:
+        return None
 
-    for pair in pairs[:5]:  # top 5
-        name = pair["baseToken"]["name"]
-        price = pair.get("priceUsd", "0")
-        change = pair.get("priceChange", {}).get("h24", 0)
-        volume = pair.get("volume", {}).get("h24", 0)
-        liquidity = pair.get("liquidity", {}).get("usd", 0)
-
-        # 🧠 SNIPER LOGIC
-        if volume > 10000 and liquidity > 20000:
-            signal = "🚀 BUY"
-        else:
-            signal = "⚠️ WATCH"
-
-        results.append({
-            "name": name,
-            "price": price,
-            "change": change,
-            "volume": volume,
-            "liquidity": liquidity,
-            "signal": signal
-        })
-
-    return results
+    price = res[token]["usd"]
+    change = res[token]["usd_24h_change"]
+    return price, change
 
 
-# 📊 Analyze command (keep your old feature)
+# -------------------------
+# 🧠 SNIPER LOGIC
+# -------------------------
+def sniper_decision(change):
+    if change > 5:
+        return "🚀 STRONG BUY", "LOW"
+    elif change > 2:
+        return "⚡ BUY", "MEDIUM"
+    elif change < -5:
+        return "❌ DUMP", "HIGH"
+    else:
+        return "😐 HOLD", "MEDIUM"
+
+
+# -------------------------
+# /start
+# -------------------------
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "🐉 Raiku Sniper is LIVE\n\n"
+        "Commands:\n"
+        "/analyze bitcoin\n"
+        "/scan\n"
+        "/auto"
+    )
+
+
+# -------------------------
+# /analyze
+# -------------------------
 async def analyze(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Use /scan for live sniper signals")
+    if len(context.args) == 0:
+        await update.message.reply_text("Usage: /analyze bitcoin")
+        return
 
+    token = context.args[0].lower()
 
-# 🚀 SNIPER SCAN
-async def scan(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    data = get_trending()
+    data = get_price(token)
 
-    msg = "🐉 RAIKU SNIPER SCAN\n━━━━━━━━━━━━━━━\n\n"
+    if not data:
+        await update.message.reply_text("Token not found")
+        return
 
-    for coin in data:
-        msg += f"""
-⚡ {coin['name']}
-💲 ${coin['price']}
-📊 24h: {coin['change']}%
-💧 Liquidity: ${coin['liquidity']}
-📈 Volume: ${coin['volume']}
-🎯 Signal: {coin['signal']}
+    price, change = data
+    decision, risk = sniper_decision(change)
 
-━━━━━━━━━━━━━━━
+    msg = f"""
+🐉 RAIKU SNIPER ENGINE
+━━━━━━━━━━━━━━
+
+⚡ Token: {token.upper()}
+💲 Price: ${price}
+📊 24h Change: {change:.2f}%
+
+⚡ Decision: {decision}
+⚠ Risk: {risk}
+
+━━━━━━━━━━━━━━
+⚡ Speed Layer Active
+🕒 {datetime.now().strftime('%H:%M:%S')}
 """
-
-    msg += f"\n⚡ Scan Time: {datetime.now().strftime('%H:%M:%S')}"
 
     await update.message.reply_text(msg)
 
 
-# 🟢 START
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "🐉 Raiku Sniper ACTIVE\n\nCommands:\n/analyze bitcoin\n/scan (LIVE SNIPER)"
-    )
+# -------------------------
+# 🔥 /scan (MULTI TOKEN SNIPER)
+# -------------------------
+async def scan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    tokens = ["bitcoin", "ethereum", "solana"]
+
+    results = "🐉 LIVE SNIPER SCAN\n━━━━━━━━━━━━━━\n"
+
+    for token in tokens:
+        data = get_price(token)
+        if not data:
+            continue
+
+        price, change = data
+        decision, _ = sniper_decision(change)
+
+        if "BUY" in decision:
+            results += f"\n🚀 {token.upper()} → {decision} ({change:.2f}%)"
+
+    if results == "🐉 LIVE SNIPER SCAN\n━━━━━━━━━━━━━━\n":
+        results += "\nNo sniper opportunities now."
+
+    await update.message.reply_text(results)
 
 
+# -------------------------
+# 🤖 AUTO SNIPER (LOOP ALERT)
+# -------------------------
+async def auto(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+
+    await update.message.reply_text("🤖 Auto Sniper Activated...")
+
+    while True:
+        tokens = ["bitcoin", "ethereum", "solana"]
+
+        for token in tokens:
+            data = get_price(token)
+            if not data:
+                continue
+
+            price, change = data
+            decision, _ = sniper_decision(change)
+
+            if "BUY" in decision:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"🚀 SNIPER ALERT\n{token.upper()} → {decision}\nPrice: ${price}"
+                )
+
+        await asyncio.sleep(30)  # scan every 30 seconds
+
+
+# -------------------------
 # 🚀 RUN BOT
+# -------------------------
 app = ApplicationBuilder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("analyze", analyze))
 app.add_handler(CommandHandler("scan", scan))
+app.add_handler(CommandHandler("auto", auto))
 
 app.run_polling()
