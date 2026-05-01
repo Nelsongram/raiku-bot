@@ -1,80 +1,80 @@
-import random
-import datetime
 import os
-
+import requests
+from datetime import datetime
 from telegram import Update
-from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-# 🔐 Secure token from Render
-TOKEN = os.getenv("TOKEN")
+TOKEN = os.getenv("BOT_TOKEN")
 
+# 🔍 Fetch real data from CoinGecko
+def get_crypto_data(coin):
+    url = f"https://api.coingecko.com/api/v3/simple/price?ids={coin}&vs_currencies=usd&include_24hr_change=true"
+    response = requests.get(url).json()
 
-def generate_analysis(user_input):
-    score = random.randint(50, 95)
+    if coin not in response:
+        return None
 
-    if score > 80:
-        decision = "⚡ STRONG BUY"
-        risk = "LOW"
-        mood = "BULLISH"
-    elif score > 65:
-        decision = "⚡ BUY"
-        risk = "MEDIUM"
-        mood = "NEUTRAL"
-    else:
-        decision = "⏳ WAIT"
-        risk = "HIGH"
-        mood = "UNCERTAIN"
+    price = response[coin]["usd"]
+    change = response[coin]["usd_24h_change"]
 
-    fee = random.choice([8000, 12000, 18000, 25000])
-    window = random.randint(2, 10)
-
-    return decision, risk, mood, fee, score, window
+    return price, change
 
 
-def format_response(user_input):
-    decision, risk, mood, fee, score, window = generate_analysis(user_input)
-    time_now = datetime.datetime.now().strftime("%H:%M:%S")
-
-    return f"""
-🐉 <b>RAIKU SNIPER ENGINE</b>
-
-━━━━━━━━━━━━━━━━━━━
-⚡ <b>Token:</b> {user_input.upper()}
-⚡ <b>Decision:</b> {decision}
-🧠 <b>Confidence:</b> {score}%
-⚠️ <b>Risk Level:</b> {risk}
-━━━━━━━━━━━━━━━━━━━
-
-📊 <b>Market Pulse:</b> {mood}
-🚀 <b>Priority Fee:</b> {fee}
-⏱ <b>Entry Window:</b> {window}s
-
-━━━━━━━━━━━━━━━━━━━
-⚡ <i>Speed Layer Active</i>
-🕒 <i>{time_now}</i>
-"""
-
-
-# 👋 /start command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🐉 Raiku is ACTIVE. Send any token to analyze."
+        "🐉 Raiku is ACTIVE.\nUse /analyze bitcoin"
     )
 
 
-# 💬 Handle user messages
-async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_input = update.message.text
-    response = format_response(user_input)
+async def analyze(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("Usage: /analyze bitcoin")
+        return
 
-    await update.message.reply_text(response, parse_mode="HTML")
+    coin = context.args[0].lower()
+    data = get_crypto_data(coin)
+
+    if not data:
+        await update.message.reply_text("❌ Coin not found")
+        return
+
+    price, change = data
+
+    # Simple logic (you can improve later)
+    decision = "BUY" if change > 0 else "SELL"
+    risk = "LOW" if abs(change) < 3 else "HIGH"
+
+    time_now = datetime.now().strftime("%H:%M:%S")
+
+    response = f"""
+🐉 RAIKU SNIPER ENGINE
+━━━━━━━━━━━━━━━━━━━
+
+⚡ Token: {coin.upper()}
+💲 Price: ${price:,.2f}
+📊 24h Change: {change:.2f}%
+
+⚡ Decision: {decision}
+⚠️ Risk: {risk}
+
+━━━━━━━━━━━━━━━━━━━
+
+📊 Market Pulse: {"BULLISH" if change > 0 else "BEARISH"}
+🚀 Priority Fee: 12000
+⏱ Entry Window: 3s
+
+━━━━━━━━━━━━━━━━━━━
+
+⚡ Speed Layer Active
+🕒 {time_now}
+"""
+
+    await update.message.reply_text(response)
 
 
-# 🚀 Run bot
 app = ApplicationBuilder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
+app.add_handler(CommandHandler("analyze", analyze))
 
-print("🐉 Raiku Sniper Engine is LIVE...")
 app.run_polling()
